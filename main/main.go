@@ -46,19 +46,17 @@ func main() {
 	log.Fatal(res)
 }
 
-func getImage(imageBytes []byte) {
-	extractLabels(imageBytes)
-}
-
 func extractLabels(imgBytes []byte) {
 	img, _, err := image.Decode(bytes.NewReader(imgBytes))
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	f, err := os.Create("../outimage.jpg")
+	fileName := "../outimage.jpg"
+
+	f, err := os.Create(fileName)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("Failed to create a file outimage.jpg: %v", err)
 	}
 	defer f.Close()
 
@@ -67,28 +65,38 @@ func extractLabels(imgBytes []byte) {
 	}
 	err = jpeg.Encode(f, img, &opt)
 	if err != nil {
+		log.Fatalf("Failed to encode image to JPG: %v", err)
 	}
 
 	ctx := context.Background()
 	client, err := vision.NewImageAnnotatorClient(ctx)
 	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
 	}
-	defer client.close()
+	defer client.Close()
 
-	visionImage, err := vision.NewImageFromReader(img)
+	file, err := os.Open(fileName)
 	if err != nil {
+		log.Fatalf("Failed to read file: %v", err)
 	}
-	labels, err := client.DetectLabels(ctx, visionImage, nil, 5)
-	if err != nil {
-	}
-	fmt.Println("Labels:", labels)
+	defer file.Close()
 
-	// TODO
-	len := 5 // d세팅한 라벨 수
-	myImage.Labels = make([]string, len)
+	visioniamge, err := vision.NewImageFromReader(file)
+	if err != nil {
+		log.Fatalf("Failed to read image from reader: %v", err)
+	}
+	labelsSize := 5
+	labels, err := client.DetectLabels(ctx, visioniamge, nil, labelsSize)
+	if err != nil {
+		// TODO : error - failed to detect errors
+		log.Fatalf("Failed to detect labels: %v", err)
+	}
+
+	myImage.Labels = make([]string, labelsSize)
 	for _, label := range labels {
-		myImage.Labels = append(myImage.Labels, label)
+		myImage.Labels = append(myImage.Labels, label.GetDescription())
 	}
+
 	// TODO : body 로 하여 반환한다.
 	// 이미지 일치하는지 여부를 앱이 수신한 MyImageSrc 의 []byte 일치하는지로 검증.
 }
