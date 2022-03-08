@@ -84,7 +84,7 @@ func extractLabels(imgBytes []byte) {
 	fmt.Println("Labels:", labels)
 
 	// TODO
-	len := 5 // 실제로는 추출된 라벨 수
+	len := 5 // d세팅한 라벨 수
 	myImage.Labels = make([]string, len)
 	for _, label := range labels {
 		myImage.Labels = append(myImage.Labels, label)
