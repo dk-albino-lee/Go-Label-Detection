@@ -3,10 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -16,89 +16,97 @@ import (
 
 var myImage MyImageSrc
 
-func handleRoot(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(w, "Hello Go2!")
-
-	fmt.Println("Method: ", req.Method)
-	fmt.Println("Url: ", req.URL)
-	fmt.Println("Header: ", req.Header)
-
-	b, _ := ioutil.ReadAll(req.Body)
-	defer req.Body.Close()
-	fmt.Println("Body: ", string(b))
-
-	w.Write([]byte("Post request succeeded."))
-}
-
-func handleImage(w http.ResponseWriter, req *http.Request) {
-	body, _ := ioutil.ReadAll(req.Body)
-	defer req.Body.Close()
-	myImage.ImageBytes = body
-	// json.Unmarshal(body, &myImage)
-	extractLabels(body)
-}
-
 func main() {
-	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/GetLabels", handleImage)
 
 	res := http.ListenAndServe(":8080", nil)
 	log.Fatal(res)
 }
 
-func extractLabels(imgBytes []byte) {
-	img, _, err := image.Decode(bytes.NewReader(imgBytes))
+func handleImage(w http.ResponseWriter, req *http.Request) {
+	fmt.Println("Url: ", req.URL)
+	fmt.Println("Body: ", req.Body)
+	defer req.Body.Close()
+
+	decoder := json.NewDecoder(req.Body)
+	var ra ReceivedArgument
+	err := decoder.Decode(&ra)
 	if err != nil {
-		log.Fatalln(err)
+		panic(err)
 	}
+
+	myImage = extractLabels(ra.ImageBytes)
+	w.WriteHeader(http.StatusCreated)
+	w.Header().Set("Content-Type", "application/json")
+	resp, err := json.Marshal(myImage)
+	errorHandling(err, "Error happened in JSON marshal")
+	w.Write(resp)
+}
+
+// func handleImage(w http.ResponseWriter, req *http.Request) {
+// 	body, _ := ioutil.ReadAll(req.Body)
+// 	defer req.Body.Close()
+// 	myImage.ImageBytes = body
+// 	// json.Unmarshal(body, &myImage)
+// 	extractLabels(body)
+// }
+
+func extractLabels(imgBytes []byte) MyImageSrc {
+	var result MyImageSrc
+	result.ImageBytes = imgBytes
+
+	img, _, err := image.Decode(bytes.NewReader(imgBytes))
+	errorHandling(err, "Failed to decode bytes to image")
 
 	fileName := "../outimage.jpg"
 
 	f, err := os.Create(fileName)
-	if err != nil {
-		log.Fatalf("Failed to create a file outimage.jpg: %v", err)
-	}
+	errorHandling(err, "Failed to create a file outimage.jpg")
 	defer f.Close()
 
 	opt := jpeg.Options{
 		Quality: 90,
 	}
 	err = jpeg.Encode(f, img, &opt)
-	if err != nil {
-		log.Fatalf("Failed to encode image to JPG: %v", err)
-	}
+	errorHandling(err, "Failed to encode image to JPG")
 
 	ctx := context.Background()
 	client, err := vision.NewImageAnnotatorClient(ctx)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
+	errorHandling(err, "Failed to create client")
 	defer client.Close()
 
 	file, err := os.Open(fileName)
-	if err != nil {
-		log.Fatalf("Failed to read file: %v", err)
-	}
+	errorHandling(err, "Failed to read file")
 	defer file.Close()
 
 	visioniamge, err := vision.NewImageFromReader(file)
-	if err != nil {
-		log.Fatalf("Failed to read image from reader: %v", err)
-	}
+	errorHandling(err, "Failed to read image from reader")
+
 	labelsSize := 5
 	labels, err := client.DetectLabels(ctx, visioniamge, nil, labelsSize)
-	if err != nil {
-		// TODO : error - failed to detect errors
-		log.Fatalf("Failed to detect labels: %v", err)
-	}
+	errorHandling(err, "Failed to detect labels")
 
-	myImage.Labels = make([]string, labelsSize)
+	result.Labels = make([]string, labelsSize)
 	for _, label := range labels {
-		myImage.Labels = append(myImage.Labels, label.GetDescription())
+		result.Labels = append(result.Labels, label.GetDescription())
 	}
 
-	// TODO : body 로 하여 반환한다.
-	// 이미지 일치하는지 여부를 앱이 수신한 MyImageSrc 의 []byte 일치하는지로 검증.
+	// 현재로서는 vision 에서 코드 내 이미지 읽는 방법을 모르겠음.
+	// 이미지 읽어들인 후 바로 삭제하는 방식으로 한다.
+	resultErr := os.Remove(fileName)
+	errorHandling(resultErr, "Failed to delete image file")
+
+	return result
+}
+
+func errorHandling(err error, message string) {
+	if err != nil {
+		log.Fatalf(message+": %v", err)
+	}
+}
+
+type ReceivedArgument struct {
+	ImageBytes []byte `json:"ImageBytes"`
 }
 
 type MyImageSrc struct {
