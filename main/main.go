@@ -11,16 +11,51 @@ import (
 	"net/http"
 	"os"
 
+	firebase "firebase.google.com/go"
+	"firebase.google.com/go/db"
+	"github.com/gin-gonic/gin"
+	"google.golang.org/api/option"
+
 	vision "cloud.google.com/go/vision/apiv1"
 )
 
 var myImage MyImageSrc
+var imgRef *db.Ref
 
 func main() {
+	ctx := context.Background()
+	conf := &firebase.Config{
+		DatabaseURL: "https://story-of-your-things-default-rtdb.asia-southeast1.firebasedatabase.app/",
+	}
+	opt := option.WithCredentialsFile("~/Users/dongkeunalbinolee/Downloads/robust-chess-337506-5fabd188701b.json")
+
+	app, err := firebase.NewApp(ctx, conf, opt)
+	if err != nil {
+		log.Fatalf("error initialising app: %v\n", err)
+	}
+
+	databaseClient, err := app.Database(ctx)
+	if err != nil {
+		log.Fatalln("Error initialising database client:", err)
+	}
+
+	ref := databaseClient.NewRef("restricted_access/secret_document")
+	var data map[string]interface{}
+	if err := ref.Get(ctx, &data); err != nil {
+		log.Fatal("Error reading from database:", err)
+	}
+	fmt.Println(data)
+
+	imgRef := ref.Child("images")
+
 	http.HandleFunc("/GetLabels", handleImage)
 
 	res := http.ListenAndServe(":8080", nil)
 	log.Fatal(res)
+}
+
+func handleImageWithGin(context *gin.Context) {
+
 }
 
 func handleImage(w http.ResponseWriter, req *http.Request) {
@@ -54,6 +89,15 @@ func handleImage(w http.ResponseWriter, req *http.Request) {
 func extractLabels(imgBytes []byte) MyImageSrc {
 	var result MyImageSrc
 	result.ImageBytes = imgBytes
+
+	err := imgRef.Set(context.Background(), map[string]*ReceivedArgument{
+		"Image": {
+			ImageBytes: imgBytes,
+		},
+	})
+	if err != nil {
+		log.Fatalln("error setting value:", err)
+	}
 
 	img, _, err := image.Decode(bytes.NewReader(imgBytes))
 	errorHandling(err, "Failed to decode bytes to image")
